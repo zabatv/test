@@ -1,8 +1,9 @@
-import os
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-TOKEN = os.environ.get("TOKEN", "8978439642:AAGSjQOggCU-C8_fP6Qj7QAEBvuCsgkGoRk")  
+# TOKEN оставлен в коде по вашему запросу
+TOKEN = "8978439642:AAGSjQOggCU-C8_fP6Qj7QAEBvuCsgkGoRk"
 
 MENUS = {
     "main": {
@@ -104,9 +105,8 @@ async def show_menu(query, menu_name):
         parse_mode="HTML"
     )
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     menu = MENUS["main"]
-    # reply_text -> reply_html поддерживается через parse_mode
     await update.message.reply_text(
         text=menu["text"],
         reply_markup=create_keyboard(menu["buttons"]),
@@ -122,15 +122,27 @@ async def buttons_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await query.edit_message_text("❌ Ошибка: такого раздела нет.")
 
-def main():
+async def run():
     app = Application.builder().token(TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CallbackQueryHandler(buttons_handler))
 
-    # Запуск polling корректным способом для Application
+    await app.initialize()
+    await app.start()
     print("✅ Бот успешно запущен!")
-    app.run_polling()
+    try:
+        await app.updater.start_polling()
+        await asyncio.Event().wait()
+    finally:
+        await app.updater.stop_polling()
+        await app.stop()
+        await app.shutdown()
+
+def main():
+    try:
+        asyncio.run(run())
+    except KeyboardInterrupt:
+        pass
 
 if __name__ == "__main__":
     main()
