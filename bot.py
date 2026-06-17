@@ -23,8 +23,154 @@ else:
 # Simple in-memory rate limit per session (not persistent)
 RATE_LIMIT_SECONDS = 10  # минимальный интервал между отправками от одной сессии
 
-# HTML template (центрированная карточка)
-HTML = """..."""  # (скопируйте HTML из предыдущего ответа сюда; чтобы не дублировать в примере)
+# HTML template
+HTML = """
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Анонимное сообщение</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+        
+        h1 {
+            color: #667eea;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 24px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .flash-messages {
+            margin-bottom: 20px;
+        }
+        
+        .flash {
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            text-align: center;
+            font-size: 14px;
+        }
+        
+        .flash.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .flash.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .flash.warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        
+        textarea {
+            width: 100%;
+            min-height: 150px;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            font-family: inherit;
+            resize: vertical;
+            transition: border-color 0.3s;
+        }
+        
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        button {
+            width: 100%;
+            padding: 15px;
+            margin-top: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        .info {
+            text-align: center;
+            margin-top: 20px;
+            color: #666;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Напиши анонимное сообщение султану!</h1>
+        
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="flash-messages">
+                    {% for category, message in messages %}
+                        <div class="flash {{ category }}">{{ message }}</div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+        
+        <form method="POST">
+            <textarea name="message" placeholder="Введите ваше сообщение..." required maxlength="2000"></textarea>
+            <button type="submit">Отправить</button>
+        </form>
+        
+        <div class="info">
+            Ваше сообщение полностью анонимно
+        </div>
+    </div>
+</body>
+</html>
+"""
 
 # --- Telegram helper functions ---
 def make_keyboard(buttons):
@@ -128,35 +274,45 @@ def index():
     if request.method == "POST":
         msg = request.form.get("message", "").strip()
         if not msg:
-            flash("Введите текст сообщения.")
+            flash("Введите текст сообщения.", "error")
             return redirect(url_for("index"))
         # rate limit per session
         last = session.get("last_sent_at", 0)
         now = time.time()
         if now - last < RATE_LIMIT_SECONDS:
-            flash(f"Подождите {int(RATE_LIMIT_SECONDS - (now-last))} сек. перед повторной отправкой.")
+            flash(f"Подождите {int(RATE_LIMIT_SECONDS - (now-last))} сек. перед повторной отправкой.", "warning")
             return redirect(url_for("index"))
         session["last_sent_at"] = now
         # safety: escape HTML and limit length
         safe_text = html.escape(msg)[:2000]
-        final_text = safe_text  # можно добавить префикс/метаданные
+        final_text = f"📩 <b>Анонимное сообщение:</b>\n\n{safe_text}"
         try:
             send_message_telegram(TELEGRAM_CHAT_ID, final_text)
         except Exception as e:
             print("Send telegram error:", e)
-            flash("Ошибка при отправке. Попробуйте позже.")
+            flash("Ошибка при отправке. Попробуйте позже.", "error")
             return redirect(url_for("index"))
-        flash("Сообщение успешно отправлено!")
+        flash("Сообщение успешно отправлено!", "success")
         return redirect(url_for("index"))
 
     return render_template_string(HTML)
 
-# Start polling when app starts (Render will create processes; thread starts in main)
-@app.before_first_request
-def before_first_request():
-    start_polling_background()
+# Start polling when app starts (REPLACED before_first_request)
+polling_started = False
+
+def ensure_polling_started():
+    global polling_started
+    if not polling_started:
+        start_polling_background()
+        polling_started = True
+
+# Use before_request to start polling on first request
+@app.before_request
+def before_request_handler():
+    ensure_polling_started()
 
 # Run app
 if __name__ == "__main__":
+    # Also start polling when running directly
     start_polling_background()
     app.run(host="0.0.0.0", port=PORT)
