@@ -1,74 +1,128 @@
-from flask import Flask, request, render_template_string, redirect, url_for, flash
 import os
+import time
+import threading
 import requests
+import html
+from flask import Flask, request, render_template_string, redirect, url_for, flash, session
 
+# Flask app
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET", "change-me")  # для flash
+app.secret_key = os.environ.get("FLASK_SECRET", "change-me")
 
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+# Configuration from env
+TELEGRAM_TOKEN = "8978439642:AAGSjQOggCU-C8_fP6Qj7QAEBvuCsgkGoRk"
+TELEGRAM_CHAT_ID = CHAT_ID = 5244188429
 
-HTML = """
-<!doctype html>
-<html lang="ru">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Анонимное сообщение</title>
-<style>
-  :root{--bg:#0f1724;--card:#0b1220;--accent:#7c3aed;--muted:#9aa4b2;--glass:rgba(255,255,255,0.04)}
-  body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:
-    radial-gradient( circle at 10% 10%, rgba(124,58,237,0.12), transparent 10%),
-    linear-gradient(180deg,#071029 0%, var(--bg) 100%);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial;}
-  .card{width:100%;max-width:720px;padding:36px;border-radius:12px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));box-shadow:0 8px 30px rgba(2,6,23,0.7);backdrop-filter: blur(6px);border:1px solid rgba(255,255,255,0.03)}
-  h1{margin:0 0 8px;color:#ffffff;font-size:20px;text-align:center;letter-spacing:0.4px}
-  p.lead{margin:0 0 18px;color:var(--muted);text-align:center;font-size:14px}
-  form{display:flex;flex-direction:column;gap:12px}
-  textarea{min-height:140px;padding:14px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:var(--glass);color:#e6eef8;resize:vertical;font-size:15px}
-  .row{display:flex;gap:8px}
-  .btn{background:linear-gradient(90deg,var(--accent),#5b21b6);color:white;padding:12px 16px;border-radius:10px;border:0;cursor:pointer;font-weight:600}
-  .btn:disabled{opacity:0.6;cursor:not-allowed}
-  .muted{color:var(--muted);font-size:13px;text-align:center}
-  .footer{margin-top:10px;text-align:center;color:var(--muted);font-size:12px}
-  .flash{background:#06374a;color:#d1f5ff;padding:10px;border-radius:8px;text-align:center}
-  @media (max-width:520px){.card{padding:20px}}
-</style>
-</head>
-<body>
-  <div class="card" role="main">
-    <h1>АНОНИМНОЕ СООБЩЕНИЕ СУЛТАНУ!</h1>
-    <p class="lead">Напишите сообщение — оно будет отправлено в Telegram. Без имени.</p>
+PORT = int(os.environ.get("PORT", 5000))
 
-    {% with messages = get_flashed_messages() %}
-      {% if messages %}
-        <div class="flash">{{ messages[0] }}</div>
-      {% endif %}
-    {% endwith %}
+if TELEGRAM_TOKEN:
+    API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
+else:
+    API = None
 
-    <form method="post" action="/">
-      <textarea name="message" placeholder="Ваше анонимное сообщение..." required maxlength="2000">{{ request.form.get('message','') }}</textarea>
-      <div class="row">
-        <button class="btn" type="submit">Отправить анонимно</button>
-      </div>
-    </form>
+# Simple in-memory rate limit per session (not persistent)
+RATE_LIMIT_SECONDS = 10  # минимальный интервал между отправками от одной сессии
 
-    <div class="footer">Макс. длина 2000 символов • Сообщения проходят через Telegram Bot API</div>
-  </div>
-</body>
-</html>
-"""
+# HTML template (центрированная карточка)
+HTML = """..."""  # (скопируйте HTML из предыдущего ответа сюда; чтобы не дублировать в примере)
 
-def send_telegram(text: str):
-    token = TELEGRAM_TOKEN
-    chat_id = TELEGRAM_CHAT_ID
-    if not token or not chat_id:
-        raise EnvironmentError("TELEGRAM_TOKEN или TELEGRAM_CHAT_ID не заданы")
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = {"chat_id": chat_id, "text": text}
-    resp = requests.post(url, data=payload, timeout=10)
-    resp.raise_for_status()
-    return resp.json()
+# --- Telegram helper functions ---
+def make_keyboard(buttons):
+    keyboard = []
+    for text, cb in buttons:
+        keyboard.append([{"text": text, "callback_data": cb}])
+    return {"inline_keyboard": keyboard}
 
+def send_message_telegram(chat_id, text, reply_markup=None, parse_mode="HTML"):
+    if not API:
+        raise EnvironmentError("TELEGRAM_TOKEN не задан")
+    payload = {"chat_id": chat_id, "text": text, "parse_mode": parse_mode}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    r = requests.post(API + "/sendMessage", json=payload, timeout=20)
+    r.raise_for_status()
+    return r.json()
+
+def edit_message(chat_id, message_id, text, reply_markup=None, parse_mode="HTML"):
+    if not API:
+        return
+    payload = {"chat_id": chat_id, "message_id": message_id, "text": text, "parse_mode": parse_mode}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    r = requests.post(API + "/editMessageText", json=payload, timeout=20)
+    return r.json()
+
+def answer_callback(callback_query_id):
+    if not API:
+        return
+    try:
+        requests.post(API + "/answerCallbackQuery", json={"callback_query_id": callback_query_id}, timeout=5)
+    except Exception:
+        pass
+
+# --- Telegram polling logic (runs in background thread) ---
+def process_update(u):
+    try:
+        # message with /start
+        if "message" in u and "text" in u["message"]:
+            text = u["message"]["text"]
+            chat_id = u["message"]["chat"]["id"]
+            if text.strip().startswith("/start"):
+                menu = MENUS["main"]
+                send_message_telegram(chat_id, menu["text"], reply_markup=make_keyboard(menu["buttons"]))
+        # callback_query from inline buttons
+        if "callback_query" in u:
+            cq = u["callback_query"]
+            data = cq.get("data")
+            cb_id = cq["id"]
+            # acknowledge
+            answer_callback(cb_id)
+            msg = cq.get("message")
+            if not msg:
+                return
+            chat_id = msg["chat"]["id"]
+            message_id = msg["message_id"]
+            if data in MENUS:
+                menu = MENUS[data]
+                edit_message(chat_id, message_id, menu["text"], reply_markup=make_keyboard(menu["buttons"]))
+            else:
+                edit_message(chat_id, message_id, "❌ Ошибка: такого раздела нет.")
+    except Exception as e:
+        print("process_update error:", e)
+
+def get_updates(offset=None, timeout=30):
+    if not API:
+        return {"ok": False, "result": []}
+    params = {"timeout": timeout}
+    if offset:
+        params["offset"] = offset
+    r = requests.get(API + "/getUpdates", params=params, timeout=timeout+10)
+    return r.json()
+
+def polling_loop():
+    print("Запуск Telegram polling...")
+    offset = None
+    while True:
+        try:
+            res = get_updates(offset=offset, timeout=30)
+            if not res.get("ok"):
+                time.sleep(2)
+                continue
+            for u in res.get("result", []):
+                process_update(u)
+                offset = u["update_id"] + 1
+        except Exception as e:
+            print("Polling error:", e)
+            time.sleep(3)
+
+def start_polling_background():
+    if not TELEGRAM_TOKEN:
+        print("TELEGRAM_TOKEN не задан — polling не запущен")
+        return
+    t = threading.Thread(target=polling_loop, daemon=True)
+    t.start()
+
+# --- Flask routes ---
 @app.route("/", methods=["GET", "POST"])
 def index():
     if request.method == "POST":
@@ -76,10 +130,20 @@ def index():
         if not msg:
             flash("Введите текст сообщения.")
             return redirect(url_for("index"))
-        # Собираем финальный текст — можно добавить метаданные, но по заданию — анонимно
+        # rate limit per session
+        last = session.get("last_sent_at", 0)
+        now = time.time()
+        if now - last < RATE_LIMIT_SECONDS:
+            flash(f"Подождите {int(RATE_LIMIT_SECONDS - (now-last))} сек. перед повторной отправкой.")
+            return redirect(url_for("index"))
+        session["last_sent_at"] = now
+        # safety: escape HTML and limit length
+        safe_text = html.escape(msg)[:2000]
+        final_text = safe_text  # можно добавить префикс/метаданные
         try:
-            send_telegram(msg)
+            send_message_telegram(TELEGRAM_CHAT_ID, final_text)
         except Exception as e:
+            print("Send telegram error:", e)
             flash("Ошибка при отправке. Попробуйте позже.")
             return redirect(url_for("index"))
         flash("Сообщение успешно отправлено!")
@@ -87,5 +151,12 @@ def index():
 
     return render_template_string(HTML)
 
+# Start polling when app starts (Render will create processes; thread starts in main)
+@app.before_first_request
+def before_first_request():
+    start_polling_background()
+
+# Run app
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    start_polling_background()
+    app.run(host="0.0.0.0", port=PORT)
