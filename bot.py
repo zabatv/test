@@ -1,169 +1,91 @@
-import time
+from flask import Flask, request, render_template_string, redirect, url_for, flash
+import os
 import requests
-import html
 
-TOKEN = "8978439642:AAGSjQOggCU-C8_fP6Qj7QAEBvuCsgkGoRk"
-API = f"https://api.telegram.org/bot{TOKEN}"
+app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET", "change-me")  # для flash
 
-MENUS = {
-    "main": {
-        "text": "🖥 <b>Информационный бот о ПК</b>\n\nПривет! Здесь ты узнаешь много интересного о компьютерах, их истории, устройстве и фактах. Выбирай раздел:",
-        "buttons": [
-            ("📜 История ПК", "history"),
-            ("⚙️ Устройство ПК", "components"),
-            ("💡 Интересные факты", "facts"),
-            ("🛠 Советы по сборке", "tips"),
-        ]
-    },
-    "history": {
-        "text": "📜 <b>История ПК</b>\n\nОт гигантских машин до карманных суперкомпьютеров.",
-        "buttons": [
-            ("Первый компьютер", "hist_eniac"),
-            ("Рождение персональных ПК", "hist_ibm"),
-            ("⬅️ Назад", "main"),
-        ]
-    },
-    "hist_eniac": {
-        "text": "🦖 <b>ENIAC (1946 год)</b>\n\nПервый электронный вычислитель. Он весил 27 тонн, занимал 167 кв. метров и содержал 18 000 вакуумных ламп. По легенде, при его включении в Филадельфии гас свет из-за перегрузки сети!",
-        "buttons": [("⬅️ Назад", "history")]
-    },
-    "hist_ibm": {
-        "text": "💼 <b>IBM PC (1981 год)</b>\n\nИменно этот компьютер задал стандарты, которые мы используем до сих пор (архитектура x86). Он стоил $1565, не имел жесткого диска и имел всего 16 КБ оперативной памяти!",
-        "buttons": [("⬅️ Назад", "history")]
-    },
-    "components": {
-        "text": "⚙️ <b>Устройство ПК</b>\n\nОсновные компоненты современного компьютера.",
-        "buttons": [
-            ("🧠 Процессор (CPU)", "comp_cpu"),
-            ("🎮 Видеокарта (GPU)", "comp_gpu"),
-            ("💾 Оперативная память (RAM)", "comp_ram"),
-            ("⬅️ Назад", "main"),
-        ]
-    },
-    "comp_cpu": {
-        "text": "🧠 <b>Процессор (CPU)</b>\n\n«Мозг» компьютера. Выполняет все вычисления и инструкции. Современные процессоры содержат десятки миллиардов микроскопических транзисторов и работают на частотах свыше 5 ГГц.",
-        "buttons": [("⬅️ Назад", "components")]
-    },
-    "comp_gpu": {
-        "text": "🎮 <b>Видеокарта (GPU)</b>\n\nОтвечает за вывод изображения и обработку 3D-графики. Сегодня GPU используются не только в играх, но и для обучения нейросетей (ИИ), майнинга и научных расчетов.",
-        "buttons": [("⬅️ Назад", "components")]
-    },
-    "comp_ram": {
-        "text": "💾 <b>Оперативная память (RAM)</b>\n\nСверхбыстрая, но энергозависимая память. Хранит данные, которые процессор использует «прямо сейчас». При выключении ПК она полностью очищается.",
-        "buttons": [("⬅️ Назад", "components")]
-    },
-    "facts": {
-        "text": "💡 <b>Интересные факты</b>\n\nУдивительные вещи из мира IT и железа.",
-        "buttons": [
-            ("Первый «баг»", "fact_bug"),
-            ("Закон Мура", "fact_moore"),
-            ("Смартфон vs Космос", "fact_phone"),
-            ("⬅️ Назад", "main"),
-        ]
-    },
-    "fact_bug": {
-        "text": "🦋 <b>Первый компьютерный «баг»</b>\n\nВ 1947 году инженеры нашли настоящего мотылька (moth), застрявшего в реле компьютера Mark II и вызвавшем сбой. С тех пор ошибки в коде и железе называют «багами» (от англ. bug — насекомое).",
-        "buttons": [("⬅️ Назад", "facts")]
-    },
-    "fact_moore": {
-        "text": "📈 <b>Закон Мура</b>\n\nГордон Мур в 1965 году предсказал, что количество транзисторов на микросхеме будет удваиваться каждые 2 года. Это эмпирическое правило работало более 50 лет, обеспечив взрывной рост технологий!",
-        "buttons": [("⬅️ Назад", "facts")]
-    },
-    "fact_phone": {
-        "text": "📱 <b>Смартфон против Apollo</b>\n\nВаш современный смартфон в миллионы раз мощнее, чем бортовые компьютеры NASA, которые отправляли астронавтов на Луну в 1969 году. Памяти в вашем телефоне больше, чем было во всех вычислительных мощностях Земли в 1970-х.",
-        "buttons": [("⬅️ Назад", "facts")]
-    },
-    "tips": {
-        "text": "🛠 <b>Советы по сборке</b>\n\nНа что обратить внимание при выборе комплектующих?",
-        "buttons": [
-            ("🎮 Для игр", "tip_game"),
-            ("💼 Для работы", "tip_work"),
-            ("⬅️ Назад", "main"),
-        ]
-    },
-    "tip_game": {
-        "text": "🎮 <b>Игровой ПК</b>\n\nГлавное — <b>видеокарта</b>. На нее стоит тратить до 40-50% бюджета. Процессор должен быть достаточно мощным, чтобы не ограничивать видеокарту (избегать «бутылочного горлышка»), а блок питания должен иметь запас мощности в 20-30%.",
-        "buttons": [("⬅️ Назад", "tips")]
-    },
-    "tip_work": {
-        "text": "💼 <b>Рабочий ПК</b>\n\nДля монтажа видео, 3D-моделирования и программирования важны <b>многоядерный процессор</b>, <b>большой объем RAM</b> (от 32 ГБ) и <b>быстрый SSD</b> (формата NVMe). Видеокарта вторична, если вы не занимаетесь рендерингом 3D-сцен.",
-        "buttons": [("⬅️ Назад", "tips")]
-    }
-}
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-def make_keyboard(buttons):
-    keyboard = []
-    for text, cb in buttons:
-        keyboard.append([{"text": text, "callback_data": cb}])
-    return {"inline_keyboard": keyboard}
+HTML = """
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Анонимное сообщение</title>
+<style>
+  :root{--bg:#0f1724;--card:#0b1220;--accent:#7c3aed;--muted:#9aa4b2;--glass:rgba(255,255,255,0.04)}
+  body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:
+    radial-gradient( circle at 10% 10%, rgba(124,58,237,0.12), transparent 10%),
+    linear-gradient(180deg,#071029 0%, var(--bg) 100%);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial;}
+  .card{width:100%;max-width:720px;padding:36px;border-radius:12px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));box-shadow:0 8px 30px rgba(2,6,23,0.7);backdrop-filter: blur(6px);border:1px solid rgba(255,255,255,0.03)}
+  h1{margin:0 0 8px;color:#ffffff;font-size:20px;text-align:center;letter-spacing:0.4px}
+  p.lead{margin:0 0 18px;color:var(--muted);text-align:center;font-size:14px}
+  form{display:flex;flex-direction:column;gap:12px}
+  textarea{min-height:140px;padding:14px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:var(--glass);color:#e6eef8;resize:vertical;font-size:15px}
+  .row{display:flex;gap:8px}
+  .btn{background:linear-gradient(90deg,var(--accent),#5b21b6);color:white;padding:12px 16px;border-radius:10px;border:0;cursor:pointer;font-weight:600}
+  .btn:disabled{opacity:0.6;cursor:not-allowed}
+  .muted{color:var(--muted);font-size:13px;text-align:center}
+  .footer{margin-top:10px;text-align:center;color:var(--muted);font-size:12px}
+  .flash{background:#06374a;color:#d1f5ff;padding:10px;border-radius:8px;text-align:center}
+  @media (max-width:520px){.card{padding:20px}}
+</style>
+</head>
+<body>
+  <div class="card" role="main">
+    <h1>АНОНИМНОЕ СООБЩЕНИЕ СУЛТАНУ!</h1>
+    <p class="lead">Напишите сообщение — оно будет отправлено в Telegram. Без имени.</p>
 
-def send_message(chat_id, text, reply_markup=None, parse_mode="HTML"):
-    payload = {"chat_id": chat_id, "text": text, "parse_mode": parse_mode}
-    if reply_markup:
-        payload["reply_markup"] = reply_markup
-    r = requests.post(API + "/sendMessage", json=payload, timeout=30)
-    return r.json()
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <div class="flash">{{ messages[0] }}</div>
+      {% endif %}
+    {% endwith %}
 
-def edit_message(chat_id, message_id, text, reply_markup=None, parse_mode="HTML"):
-    payload = {"chat_id": chat_id, "message_id": message_id, "text": text, "parse_mode": parse_mode}
-    if reply_markup:
-        payload["reply_markup"] = reply_markup
-    r = requests.post(API + "/editMessageText", json=payload, timeout=30)
-    return r.json()
+    <form method="post" action="/">
+      <textarea name="message" placeholder="Ваше анонимное сообщение..." required maxlength="2000">{{ request.form.get('message','') }}</textarea>
+      <div class="row">
+        <button class="btn" type="submit">Отправить анонимно</button>
+      </div>
+    </form>
 
-def answer_callback(callback_query_id):
-    requests.post(API + "/answerCallbackQuery", json={"callback_query_id": callback_query_id}, timeout=10)
+    <div class="footer">Макс. длина 2000 символов • Сообщения проходят через Telegram Bot API</div>
+  </div>
+</body>
+</html>
+"""
 
-def process_update(u):
-    # message with /start
-    if "message" in u and "text" in u["message"]:
-        text = u["message"]["text"]
-        chat_id = u["message"]["chat"]["id"]
-        if text.strip().startswith("/start"):
-            menu = MENUS["main"]
-            send_message(chat_id, menu["text"], reply_markup=make_keyboard(menu["buttons"]))
-    # callback_query from inline buttons
-    if "callback_query" in u:
-        cq = u["callback_query"]
-        data = cq.get("data")
-        cb_id = cq["id"]
-        # acknowledge
-        answer_callback(cb_id)
-        from_user = cq["from"]
-        # message to edit
-        msg = cq.get("message")
+def send_telegram(text: str):
+    token = TELEGRAM_TOKEN
+    chat_id = TELEGRAM_CHAT_ID
+    if not token or not chat_id:
+        raise EnvironmentError("TELEGRAM_TOKEN или TELEGRAM_CHAT_ID не заданы")
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {"chat_id": chat_id, "text": text}
+    resp = requests.post(url, data=payload, timeout=10)
+    resp.raise_for_status()
+    return resp.json()
+
+@app.route("/", methods=["GET", "POST"])
+def index():
+    if request.method == "POST":
+        msg = request.form.get("message", "").strip()
         if not msg:
-            return
-        chat_id = msg["chat"]["id"]
-        message_id = msg["message_id"]
-        if data in MENUS:
-            menu = MENUS[data]
-            edit_message(chat_id, message_id, menu["text"], reply_markup=make_keyboard(menu["buttons"]))
-        else:
-            edit_message(chat_id, message_id, "❌ Ошибка: такого раздела нет.")
-
-def get_updates(offset=None, timeout=30):
-    params = {"timeout": timeout}
-    if offset:
-        params["offset"] = offset
-    r = requests.get(API + "/getUpdates", params=params, timeout=timeout+10)
-    return r.json()
-
-def main():
-    print("Запуск polling через Bot API...")
-    offset = None
-    while True:
+            flash("Введите текст сообщения.")
+            return redirect(url_for("index"))
+        # Собираем финальный текст — можно добавить метаданные, но по заданию — анонимно
         try:
-            res = get_updates(offset=offset, timeout=30)
-            if not res.get("ok"):
-                time.sleep(1)
-                continue
-            for u in res.get("result", []):
-                process_update(u)
-                offset = u["update_id"] + 1
+            send_telegram(msg)
         except Exception as e:
-            print("Ошибка в polling:", e)
-            time.sleep(2)
+            flash("Ошибка при отправке. Попробуйте позже.")
+            return redirect(url_for("index"))
+        flash("Сообщение успешно отправлено!")
+        return redirect(url_for("index"))
+
+    return render_template_string(HTML)
 
 if __name__ == "__main__":
-    main()
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
