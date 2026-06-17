@@ -1,9 +1,9 @@
-import asyncio
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+import time
+import requests
+import html
 
-# TOKEN оставлен в коде по вашему запросу
 TOKEN = "8978439642:AAGSjQOggCU-C8_fP6Qj7QAEBvuCsgkGoRk"
+API = f"https://api.telegram.org/bot{TOKEN}"
 
 MENUS = {
     "main": {
@@ -91,58 +91,79 @@ MENUS = {
     }
 }
 
-def create_keyboard(buttons):
+def make_keyboard(buttons):
     keyboard = []
-    for text, callback_data in buttons:
-        keyboard.append([InlineKeyboardButton(text, callback_data=callback_data)])
-    return InlineKeyboardMarkup(keyboard)
+    for text, cb in buttons:
+        keyboard.append([{"text": text, "callback_data": cb}])
+    return {"inline_keyboard": keyboard}
 
-async def show_menu(query, menu_name):
-    menu = MENUS[menu_name]
-    await query.edit_message_text(
-        text=menu["text"],
-        reply_markup=create_keyboard(menu["buttons"]),
-        parse_mode="HTML"
-    )
+def send_message(chat_id, text, reply_markup=None, parse_mode="HTML"):
+    payload = {"chat_id": chat_id, "text": text, "parse_mode": parse_mode}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    r = requests.post(API + "/sendMessage", json=payload, timeout=30)
+    return r.json()
 
-async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    menu = MENUS["main"]
-    await update.message.reply_text(
-        text=menu["text"],
-        reply_markup=create_keyboard(menu["buttons"]),
-        parse_mode="HTML"
-    )
+def edit_message(chat_id, message_id, text, reply_markup=None, parse_mode="HTML"):
+    payload = {"chat_id": chat_id, "message_id": message_id, "text": text, "parse_mode": parse_mode}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    r = requests.post(API + "/editMessageText", json=payload, timeout=30)
+    return r.json()
 
-async def buttons_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    button_id = query.data
-    if button_id in MENUS:
-        await show_menu(query, button_id)
-    else:
-        await query.edit_message_text("❌ Ошибка: такого раздела нет.")
+def answer_callback(callback_query_id):
+    requests.post(API + "/answerCallbackQuery", json={"callback_query_id": callback_query_id}, timeout=10)
 
-async def run():
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start_cmd))
-    app.add_handler(CallbackQueryHandler(buttons_handler))
+def process_update(u):
+    # message with /start
+    if "message" in u and "text" in u["message"]:
+        text = u["message"]["text"]
+        chat_id = u["message"]["chat"]["id"]
+        if text.strip().startswith("/start"):
+            menu = MENUS["main"]
+            send_message(chat_id, menu["text"], reply_markup=make_keyboard(menu["buttons"]))
+    # callback_query from inline buttons
+    if "callback_query" in u:
+        cq = u["callback_query"]
+        data = cq.get("data")
+        cb_id = cq["id"]
+        # acknowledge
+        answer_callback(cb_id)
+        from_user = cq["from"]
+        # message to edit
+        msg = cq.get("message")
+        if not msg:
+            return
+        chat_id = msg["chat"]["id"]
+        message_id = msg["message_id"]
+        if data in MENUS:
+            menu = MENUS[data]
+            edit_message(chat_id, message_id, menu["text"], reply_markup=make_keyboard(menu["buttons"]))
+        else:
+            edit_message(chat_id, message_id, "❌ Ошибка: такого раздела нет.")
 
-    await app.initialize()
-    await app.start()
-    print("✅ Бот успешно запущен!")
-    try:
-        await app.updater.start_polling()
-        await asyncio.Event().wait()
-    finally:
-        await app.updater.stop_polling()
-        await app.stop()
-        await app.shutdown()
+def get_updates(offset=None, timeout=30):
+    params = {"timeout": timeout}
+    if offset:
+        params["offset"] = offset
+    r = requests.get(API + "/getUpdates", params=params, timeout=timeout+10)
+    return r.json()
 
 def main():
-    try:
-        asyncio.run(run())
-    except KeyboardInterrupt:
-        pass
+    print("Запуск polling через Bot API...")
+    offset = None
+    while True:
+        try:
+            res = get_updates(offset=offset, timeout=30)
+            if not res.get("ok"):
+                time.sleep(1)
+                continue
+            for u in res.get("result", []):
+                process_update(u)
+                offset = u["update_id"] + 1
+        except Exception as e:
+            print("Ошибка в polling:", e)
+            time.sleep(2)
 
 if __name__ == "__main__":
     main()
