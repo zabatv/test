@@ -1,8 +1,7 @@
-import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-TOKEN = os.environ.get("TOKEN")  # установите TOKEN в переменных окружения на Render
+TOKEN = "8978439642:AAGSjQOggCU-C8_fP6Qj7QAEBvuCsgkGoRk"  # токен в коде
 
 MENUS = {
     "main": {
@@ -122,11 +121,7 @@ async def buttons_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ Ошибка: такого раздела нет.")
 
 def main():
-    token = TOKEN
-    if not token:
-        raise RuntimeError("TOKEN environment variable is not set")
-
-    app = Application.builder().token(token).build()
+    app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(buttons_handler))
