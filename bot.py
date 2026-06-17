@@ -1,9 +1,8 @@
+import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-
-TOKEN = "8978439642:AAGSjQOggCU-C8_fP6Qj7QAEBvuCsgkGoRk"
-
+TOKEN = os.environ.get("TOKEN")  # установите TOKEN в переменных окружения на Render
 
 MENUS = {
     "main": {
@@ -15,8 +14,6 @@ MENUS = {
             ("🛠 Советы по сборке", "tips"),
         ]
     },
-    
-    
     "history": {
         "text": "📜 <b>История ПК</b>\n\nОт гигантских машин до карманных суперкомпьютеров.",
         "buttons": [
@@ -33,8 +30,6 @@ MENUS = {
         "text": "💼 <b>IBM PC (1981 год)</b>\n\nИменно этот компьютер задал стандарты, которые мы используем до сих пор (архитектура x86). Он стоил $1565, не имел жесткого диска и имел всего 16 КБ оперативной памяти!",
         "buttons": [("⬅️ Назад", "history")]
     },
-
-    
     "components": {
         "text": "⚙️ <b>Устройство ПК</b>\n\nОсновные компоненты современного компьютера.",
         "buttons": [
@@ -56,8 +51,6 @@ MENUS = {
         "text": "💾 <b>Оперативная память (RAM)</b>\n\nСверхбыстрая, но энергозависимая память. Хранит данные, которые процессор использует «прямо сейчас». При выключении ПК она полностью очищается.",
         "buttons": [("⬅️ Назад", "components")]
     },
-
-    
     "facts": {
         "text": "💡 <b>Интересные факты</b>\n\nУдивительные вещи из мира IT и железа.",
         "buttons": [
@@ -79,8 +72,6 @@ MENUS = {
         "text": "📱 <b>Смартфон против Apollo</b>\n\nВаш современный смартфон в миллионы раз мощнее, чем бортовые компьютеры NASA, которые отправляли астронавтов на Луну в 1969 году. Памяти в вашем телефоне больше, чем было во всех вычислительных мощностях Земли в 1970-х.",
         "buttons": [("⬅️ Назад", "facts")]
     },
-
-    
     "tips": {
         "text": "🛠 <b>Советы по сборке</b>\n\nНа что обратить внимание при выборе комплектующих?",
         "buttons": [
@@ -100,25 +91,20 @@ MENUS = {
 }
 
 def create_keyboard(buttons):
-    """Создает инлайн-клавиатуру из списка кортежей (текст, callback_data)"""
     keyboard = []
     for text, callback_data in buttons:
-        keyboard.append([
-            InlineKeyboardButton(text, callback_data=callback_data)
-        ])
+        keyboard.append([InlineKeyboardButton(text, callback_data=callback_data)])
     return InlineKeyboardMarkup(keyboard)
 
 async def show_menu(query, menu_name):
-    """Отображает текст и кнопки выбранного меню"""
     menu = MENUS[menu_name]
     await query.edit_message_text(
         text=menu["text"],
         reply_markup=create_keyboard(menu["buttons"]),
-        parse_mode="HTML"  
+        parse_mode="HTML"
     )
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /start"""
     menu = MENUS["main"]
     await update.message.reply_text(
         text=menu["text"],
@@ -127,28 +113,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def buttons_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик нажатий на инлайн-кнопки"""
     query = update.callback_query
-    await query.answer()  
+    await query.answer()
     button_id = query.data
-
     if button_id in MENUS:
         await show_menu(query, button_id)
     else:
         await query.edit_message_text("❌ Ошибка: такого раздела нет.")
 
 def main():
-    """Запуск бота"""
-    app = (
-        Application.builder()
-        .token(TOKEN)
-        .connect_timeout(30)
-        .read_timeout(30)
-        .write_timeout(30)
-        .pool_timeout(30)
-        .build()
-    )
-    
+    token = TOKEN
+    if not token:
+        raise RuntimeError("TOKEN environment variable is not set")
+
+    app = Application.builder().token(token).build()
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(buttons_handler))
 
