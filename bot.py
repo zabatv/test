@@ -5,14 +5,11 @@ import requests
 import html
 from flask import Flask, request, render_template_string, redirect, url_for, flash, session
 
-# Flask app
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET", "change-me")
 
-# Configuration from env
 TELEGRAM_TOKEN = "8978439642:AAGSjQOggCU-C8_fP6Qj7QAEBvuCsgkGoRk"
-TELEGRAM_CHAT_ID = CHAT_ID = 5244188429
-
+TELEGRAM_CHAT_ID = 5244188429
 PORT = int(os.environ.get("PORT", 5000))
 
 if TELEGRAM_TOKEN:
@@ -20,10 +17,31 @@ if TELEGRAM_TOKEN:
 else:
     API = None
 
-# Simple in-memory rate limit per session (not persistent)
-RATE_LIMIT_SECONDS = 10  # минимальный интервал между отправками от одной сессии
+RATE_LIMIT_SECONDS = 10
 
-# HTML template
+MENUS = {
+    "main": {
+        "text": "👋 Привет! Это бот.\n\nВыбери действие:",
+        "buttons": [
+            ("ℹ️ О проекте", "about"),
+            ("📊 Статистика", "stats"),
+            ("🔗 Ссылки", "links"),
+        ]
+    },
+    "about": {
+        "text": "ℹ️ *О проекте*\n\nЭто анонимный бот для отправки сообщений.",
+        "buttons": [("⬅️ Назад", "main")]
+    },
+    "stats": {
+        "text": "📊 *Статистика*\n\nСообщений отправлено: много!",
+        "buttons": [("⬅️ Назад", "main")]
+    },
+    "links": {
+        "text": "🔗 *Ссылки*\n\nGitHub: github.com\nTelegram: t.me",
+        "buttons": [("⬅️ Назад", "main")]
+    }
+}
+
 HTML = """
 <!DOCTYPE html>
 <html lang="ru">
@@ -172,7 +190,6 @@ HTML = """
 </html>
 """
 
-# --- Telegram helper functions ---
 def make_keyboard(buttons):
     keyboard = []
     for text, cb in buttons:
@@ -206,22 +223,18 @@ def answer_callback(callback_query_id):
     except Exception:
         pass
 
-# --- Telegram polling logic (runs in background thread) ---
 def process_update(u):
     try:
-        # message with /start
         if "message" in u and "text" in u["message"]:
             text = u["message"]["text"]
             chat_id = u["message"]["chat"]["id"]
             if text.strip().startswith("/start"):
                 menu = MENUS["main"]
                 send_message_telegram(chat_id, menu["text"], reply_markup=make_keyboard(menu["buttons"]))
-        # callback_query from inline buttons
         if "callback_query" in u:
             cq = u["callback_query"]
             data = cq.get("data")
             cb_id = cq["id"]
-            # acknowledge
             answer_callback(cb_id)
             msg = cq.get("message")
             if not msg:
@@ -268,7 +281,6 @@ def start_polling_background():
     t = threading.Thread(target=polling_loop, daemon=True)
     t.start()
 
-# --- Flask routes ---
 @app.route("/", methods=["GET", "POST"])
 def index():
     if request.method == "POST":
@@ -276,14 +288,12 @@ def index():
         if not msg:
             flash("Введите текст сообщения.", "error")
             return redirect(url_for("index"))
-        # rate limit per session
         last = session.get("last_sent_at", 0)
         now = time.time()
         if now - last < RATE_LIMIT_SECONDS:
             flash(f"Подождите {int(RATE_LIMIT_SECONDS - (now-last))} сек. перед повторной отправкой.", "warning")
             return redirect(url_for("index"))
         session["last_sent_at"] = now
-        # safety: escape HTML and limit length
         safe_text = html.escape(msg)[:2000]
         final_text = f"📩 <b>Анонимное сообщение:</b>\n\n{safe_text}"
         try:
@@ -297,7 +307,6 @@ def index():
 
     return render_template_string(HTML)
 
-# Start polling when app starts (REPLACED before_first_request)
 polling_started = False
 
 def ensure_polling_started():
@@ -306,13 +315,10 @@ def ensure_polling_started():
         start_polling_background()
         polling_started = True
 
-# Use before_request to start polling on first request
 @app.before_request
 def before_request_handler():
     ensure_polling_started()
 
-# Run app
 if __name__ == "__main__":
-    # Also start polling when running directly
     start_polling_background()
     app.run(host="0.0.0.0", port=PORT)
